@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useWinkAuth } from "@/components/WinkAuthProvider";
 
 export default function Home() {
@@ -31,14 +32,23 @@ export default function Home() {
         </p>
 
         {!isAuthenticated ? (
-          <button
-            id="loginBtn"
-            onClick={login}
-            disabled={!winkClient || isBusy}
-            className="mt-4 w-full rounded-lg bg-[#2563eb] px-4 py-3 text-base text-white hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Login with Wink
-          </button>
+          <div className="mt-4 flex justify-center">
+            <button
+              id="loginBtn"
+              onClick={login}
+              disabled={!winkClient || isBusy}
+              className="wink-oauth-button-light"
+              aria-label="Login with Wink"
+            >
+              <Image
+                src="https://cdn.jsdelivr.net/gh/wink-cloud/wink-integration@main/semicolon-red.svg"
+                alt="Wink"
+                width={28}
+                height={28}
+              />
+              Login with Wink
+            </button>
+          </div>
         ) : (
           <div className="mt-4 flex flex-wrap justify-center gap-3">
             <button

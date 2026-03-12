@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+.wink-oauth-button-light:disabled,
+.wink-oauth-button-dark:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 :root {
   --background: #f5f7fb;
   --foreground: #171717;
