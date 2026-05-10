@@ -1,8 +1,9 @@
 /**
- * Wink auth constants, storage helpers, and API/URL utilities.
+ * Wink auth constants, API utilities, and config builder.
  * Used by WinkAuthProvider.
  */
 
+import { WinkError } from "wink-identity-sdk";
 import type { AuthError, WinkUserProfile, WinkSessionResponse } from "@/types/wink";
 
 export const AUTH_STATES = {
@@ -14,52 +15,22 @@ export const AUTH_STATES = {
   ERROR: "error",
 } as const;
 
-export const MANUAL_LOGOUT_KEY = "wink_manual_logout";
-
-export const clearBrowserSessionArtifacts = (): void => {
-  if (typeof window === "undefined") return;
-
-  document.cookie.split(";").forEach((cookie) => {
-    const separatorIndex = cookie.indexOf("=");
-    const name = separatorIndex > -1 ? cookie.substring(0, separatorIndex) : cookie;
-    document.cookie = `${name.trim()}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-  });
-
-  const storageKeysToClear = Object.keys(window.localStorage).filter(
-    (key) =>
-      key.includes("kc-callback") ||
-      key.includes("wink") ||
-      key.includes("token") ||
-      key.includes("session")
-  );
-
-  storageKeysToClear.forEach((key) => {
-    window.localStorage.removeItem(key);
-  });
-
-  window.sessionStorage.removeItem("wink_post_auth_next");
+export const toAuthError = (step: string, error: unknown, fallbackMessage: string): AuthError => {
+  if (error instanceof WinkError) {
+    return {
+      step,
+      message: error.message,
+      oidcCode: error.oidcCode,
+      oidcDescription: error.oidcDescription,
+      details: error,
+    };
+  }
+  return {
+    step,
+    message: error instanceof Error ? error.message : fallbackMessage,
+    details: error,
+  };
 };
-
-export const markManualLogout = (): void => {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(MANUAL_LOGOUT_KEY, "1");
-};
-
-export const clearManualLogout = (): void => {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(MANUAL_LOGOUT_KEY);
-};
-
-export const hasManualLogoutMarker = (): boolean => {
-  if (typeof window === "undefined") return false;
-  return window.sessionStorage.getItem(MANUAL_LOGOUT_KEY) === "1";
-};
-
-export const toAuthError = (step: string, error: unknown, fallbackMessage: string): AuthError => ({
-  step,
-  message: error instanceof Error ? error.message : fallbackMessage,
-  details: error,
-});
 
 /**
  * Fetches user profile from internal API route.
@@ -80,7 +51,7 @@ export const fetchUserFromBackend = async (
 };
 
 /**
- * Fetches session from internal API route.
+ * Fetches a Wink session from the internal API route.
  */
 export const fetchSessionFromBackend = async (
   backendUrl: string,
@@ -97,34 +68,7 @@ export const fetchSessionFromBackend = async (
   return res.json() as Promise<WinkSessionResponse>;
 };
 
-interface OidcLogoutParams {
-  authUrl: string;
-  realm: string;
-  clientId: string;
-  idToken?: string;
-  redirectUri: string;
-}
-
-export const buildOidcLogoutUrl = ({
-  authUrl,
-  realm,
-  clientId,
-  idToken,
-  redirectUri,
-}: OidcLogoutParams): string | null => {
-  if (!authUrl || !realm || !clientId || !redirectUri) return null;
-
-  const normalizedAuthUrl = authUrl.endsWith("/") ? authUrl.slice(0, -1) : authUrl;
-  const base = `${normalizedAuthUrl}/realms/${encodeURIComponent(realm)}/protocol/openid-connect/logout`;
-  const params = new URLSearchParams({
-    post_logout_redirect_uri: redirectUri,
-    client_id: clientId,
-  });
-  if (idToken) params.set("id_token_hint", idToken);
-  return `${base}?${params.toString()}`;
-};
-
-/** Config shape for getWinkLoginClient. SDK may require sessionId in type; we pass it only when starting login. */
+/** Config shape for getWinkLoginClient. */
 export interface WinkConfigShape {
   clientId: string;
   realm: string;
@@ -133,31 +77,21 @@ export interface WinkConfigShape {
   onAuthErrorFailure: (error: unknown) => void;
   override: boolean;
   overrideValues: { BASE_URL?: string; AUTH_URL?: string };
-  sessionId?: string;
 }
 
 /**
- * Builds the config object for getWinkLoginClient.
- * No secret - session is created via internal API route.
+ * Builds the base config object for getWinkLoginClient.
+ * sessionId is intentionally excluded — pass it to winkLogin({ sessionId }) at login time.
  */
-export const getWinkConfig = (sessionId?: string): WinkConfigShape => {
-  const clientId = process.env.NEXT_PUBLIC_WINK_CLIENT_ID ?? "";
-  const realm = process.env.NEXT_PUBLIC_WINK_REALM ?? "";
-  const winkBaseUrl = process.env.NEXT_PUBLIC_WINK_BASE_URL;
-  const winkAuthUrl = process.env.NEXT_PUBLIC_WINK_AUTH_URL;
-
-  const config: WinkConfigShape = {
-    clientId,
-    realm,
-    loggingEnabled: true,
-    cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/callback` : "/callback",
-    onAuthErrorFailure: (error: unknown) => console.error("Wink auth error:", error),
-    override: true,
-    overrideValues: {
-      ...(winkBaseUrl && { BASE_URL: winkBaseUrl }),
-      ...(winkAuthUrl && { AUTH_URL: winkAuthUrl }),
-    },
-  };
-  if (sessionId) config.sessionId = sessionId;
-  return config;
-};
+export const getWinkConfig = (): WinkConfigShape => ({
+  clientId: process.env.NEXT_PUBLIC_WINK_CLIENT_ID ?? "",
+  realm: process.env.NEXT_PUBLIC_WINK_REALM ?? "",
+  loggingEnabled: true,
+  cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/callback` : "/callback",
+  onAuthErrorFailure: (error: unknown) => console.error("Wink auth error:", error),
+  override: true,
+  overrideValues: {
+    ...(process.env.NEXT_PUBLIC_WINK_BASE_URL && { BASE_URL: process.env.NEXT_PUBLIC_WINK_BASE_URL }),
+    ...(process.env.NEXT_PUBLIC_WINK_AUTH_URL && { AUTH_URL: process.env.NEXT_PUBLIC_WINK_AUTH_URL }),
+  },
+});
