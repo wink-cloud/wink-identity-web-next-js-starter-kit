@@ -9,6 +9,8 @@ export type AuthState =
 export interface AuthError {
   step: string;
   message: string;
+  oidcCode?: string;
+  oidcDescription?: string;
   details?: unknown;
 }
 

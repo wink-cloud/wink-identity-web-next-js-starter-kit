@@ -4,14 +4,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { getWinkLoginClient } from "wink-identity-sdk";
 import {
   AUTH_STATES,
-  clearBrowserSessionArtifacts,
-  clearManualLogout,
-  hasManualLogoutMarker,
-  markManualLogout,
   toAuthError,
   fetchUserFromBackend,
   fetchSessionFromBackend,
-  buildOidcLogoutUrl,
   getWinkConfig,
 } from "@/lib/winkAuth";
 import type { WinkAuthContextValue, WinkUserProfile } from "@/types/wink";
@@ -103,13 +98,6 @@ export function WinkAuthProvider({ children }: { children: React.ReactNode }) {
           setAuthError(toAuthError("INIT", error, "Wink initialization failed."));
         },
         async onSuccess() {
-          if (hasManualLogoutMarker()) {
-            setIsAuthenticated(false);
-            setUserProfile(null);
-            setAuthState(AUTH_STATES.UNAUTHENTICATED);
-            return;
-          }
-
           setAuthError(null);
           setIsAuthenticated(true);
           await loadUserProfile(client);
@@ -135,7 +123,6 @@ export function WinkAuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    clearManualLogout();
     setAuthError(null);
     setAuthState(AUTH_STATES.LOGGING_IN);
 
@@ -150,12 +137,9 @@ export function WinkAuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Backend session response has no sessionId.");
       }
 
-      const clientWithSession = getWinkLoginClient(
-        getWinkConfig(sessionId) as Parameters<typeof getWinkLoginClient>[0]
-      );
-      clientWithSession.winkInit({
-        onLoad: "login-required",
-        checkLoginIframe: false,
+      await winkClient.winkLogin({
+        sessionId,
+        redirectUri: returnUrl,
         onFailure(error: unknown) {
           console.error(error);
           setIsAuthenticated(false);
@@ -164,7 +148,7 @@ export function WinkAuthProvider({ children }: { children: React.ReactNode }) {
         },
       });
     } catch (error) {
-      console.error("Session fetch failed:", error);
+      console.error("Login failed:", error);
       setIsAuthenticated(false);
       setAuthState(AUTH_STATES.ERROR);
       setAuthError(toAuthError("LOGIN", error, "Failed to get session from backend."));
@@ -173,34 +157,19 @@ export function WinkAuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     if (!winkClient) return;
-    markManualLogout();
     setAuthError(null);
     setAuthState(AUTH_STATES.LOGGING_OUT);
     setIsAuthenticated(false);
     setUserProfile(null);
-    clearBrowserSessionArtifacts();
 
-    const hardLogoutUrl = buildOidcLogoutUrl({
-      authUrl: process.env.NEXT_PUBLIC_WINK_AUTH_URL ?? "",
-      realm: process.env.NEXT_PUBLIC_WINK_REALM ?? "",
-      clientId: process.env.NEXT_PUBLIC_WINK_CLIENT_ID ?? "",
-      idToken: (winkClient as { idToken?: string }).idToken,
+    winkClient.winkLogout({
       redirectUri: typeof window !== "undefined" ? window.location.origin : "",
+      onFailure(error: unknown) {
+        console.error("Wink logout failed:", error);
+        setAuthState(AUTH_STATES.ERROR);
+        setAuthError(toAuthError("LOGOUT", error, "Logout failed."));
+      },
     });
-
-    if (hardLogoutUrl) {
-      window.location.assign(hardLogoutUrl);
-      return;
-    }
-
-    setAuthState(AUTH_STATES.ERROR);
-    setAuthError(
-      toAuthError(
-        "LOGOUT_CONFIG",
-        new Error("Missing OIDC logout configuration."),
-        "Unable to build OIDC logout URL."
-      )
-    );
   };
 
   const value: WinkAuthContextValue = {
